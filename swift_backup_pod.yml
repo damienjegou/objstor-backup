@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: swift-backup
+spec:
+  restartPolicy: Never
+  containers:
+  - name: swift-backup
+    image: stokeo_swiftbackup:0.3
+    volumeMounts:
+    - name: config-volume
+      mountPath: /usr/local/etc/
+
+  volumes:
+  - name: config-volume
+    configMap:
+      name: swift-backup-config

@@ -1,0 +1,6 @@
+[Install]
+WantedBy=default.target
+
+[Kube]
+Yaml=swift_backup_pod.yml
+ConfigMap=swift_backup_configmap.yml
