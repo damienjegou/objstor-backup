@@ -4,7 +4,7 @@
 # build podman container for backend web
 
 IMAGE_NAME="stokeo_swiftbackup"
-VERSION="0.5"
+VERSION="0.6"
 
 # Nom du conteneur temporaire
 container_name="stokeo_swiftbackup_build"
