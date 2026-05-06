@@ -40,7 +40,8 @@ class SwiftBackup:
     
     def __init__(self, auth_version, auth_url, username, password, tenant_name,
                  region_name, project_name, project_domain_name, source_container,
-                 backup_container, retention_days=180, threads=10):
+                 backup_data_container, backup_meta_container, retention_days=180,
+                 threads=10):
         """
         Initialise la connexion Swift
         
@@ -63,7 +64,8 @@ class SwiftBackup:
         self.project_name = project_name
         self.project_domain_name = project_domain_name
         self.source_container = source_container
-        self.backup_container = backup_container
+        self.backup_data_container = backup_data_container
+        self.backup_meta_container = backup_meta_container
         self.retention_days = retention_days
         self.threads = threads
         self.swift_conn = None
@@ -319,7 +321,7 @@ class SwiftBackup:
     def get_db_file(self):
         """ get sqlite3 file from object storage """
         obj_path = "{}/{}".format(self.source_container, self.dbfile)
-        result = self.swift_conn.download(container=self.backup_container,
+        result = self.swift_conn.download(container=self.backup_meta_container,
                                           objects=[obj_path],
                                           options={"out_file": self.dbfile})
         for down_res in result:
@@ -331,13 +333,13 @@ class SwiftBackup:
         return False
 
     def save_db_file(self):
-        """ write sqlite3 file to object storage """
+        """ write sqlite3 file to object storage meta container """
         self.db_close()
         
         obj_path = "{}/{}".format(self.source_container, self.dbfile)
 
         up_res = self.swift_conn.upload(
-            self.backup_container,
+            self.backup_meta_container,
             [SwiftUploadObject(self.dbfile, object_name=obj_path)]
         )
         for up in up_res:
@@ -345,10 +347,15 @@ class SwiftBackup:
                 logger.info("db file saved to backup container")
     
     def ensure_backup_container_exists(self):
-        """Crée le conteneur de backup s'il n'existe pas"""
+        """ Check if backup containers exists """
         try:
-            self.swift_conn.stat(container=self.backup_container)
-            logger.info(f"Conteneur de backup '{self.backup_container}' existe déjà")
+            self.swift_conn.stat(container=self.backup_data_container)
+            logger.info(f"backup data container '{self.backup_data_container}' "
+                        "aleady exists")
+            if self.backup_meta_container != self.backup_data_container:
+                self.swift_conn.stat(container=self.backup_meta_container)
+                logger.info(f"backup meta container '{self.backup_meta_container}' "
+                            "aleady exists")
             # check if sqlite db is inside
             if not self.get_db_file():
                 self.init_db()
@@ -361,7 +368,7 @@ class SwiftBackup:
             except ClientException as e:
                 logger.error(f"Erreur lors de la création du conteneur de backup: {e}")
                 raise
-    
+
     def get_object_etag(self, container, obj_name):
         """
         Récupère l'ETag (MD5) d'un objet
@@ -424,7 +431,7 @@ class SwiftBackup:
 
             if new_object:
                 destination = ("/{dcont}/{scont}/{timestamp}/{obj}"
-                               .format(dcont=self.backup_container,
+                               .format(dcont=self.backup_data_container,
                                        scont=self.source_container,
                                        timestamp=now_humanreadable,
                                        obj=obj_name))
@@ -494,7 +501,7 @@ class SwiftBackup:
             deleted_count = 0
 
             del_iter = self.swift_conn.delete(
-                container=self.backup_container,
+                container=self.backup_data_container,
                 objects=objects)
             for del_res in del_iter:
                 if del_res['success'] and not del_res['action'] == 'bulk_delete':
@@ -649,7 +656,7 @@ class SwiftBackup:
             logger.info(f"Restoring {len(copy_objects)} file(s)...")
             
             result = self.swift_conn.copy(
-                container=self.backup_container,
+                container=self.backup_data_container,
                 objects=copy_objects
             )
             
@@ -755,33 +762,18 @@ Variables d'environnement requises:
     
     args = parser.parse_args()
     
-    # Configuration
-    # env config
-    # config = {
-    #     'auth_version': os.getenv('OS_AUTH_VERSION', "3"),
-    #     'auth_url': os.getenv('OS_AUTH_URL'),
-    #     'username': os.getenv('OS_USERNAME'),
-    #     'password': os.getenv('OS_PASSWORD'),
-    #     'project_name': os.getenv('OS_PROJECT_NAME'),
-    #     'project_domain_name': os.getenv('OS_PROJECT_DOMAIN_NAME', 'default'),
-    #     'tenant_name': os.getenv('OS_TENANT_NAME', ''),
-    #     'region_name': os.getenv('OS_REGION_NAME'),
-    #     'source_container': os.getenv('SOURCE_CONTAINER'),
-    #     'backup_container': os.getenv('BACKUP_CONTAINER'),
-    #     'retention_days': int(os.getenv('RETENTION_DAYS', '180'))  # 6 mois par défaut
-    # }
-
-    # TOML config
+    # read TOML config
     with open("/usr/local/etc/swift_backup.toml", "rb") as fp:
         config = tomllib.load(fp)
-    
-    # Vérifier les paramètres requis
+
+    # check required parameters presence
     required_vars = ['auth_url', 'username', 'password', 'project_name', 
-                     'region_name', 'source_containers', 'backup_container']
+                     'region_name', 'source_containers', 'backup_data_container',
+                     'backup_meta_container']
     missing_vars = [var for var in required_vars if not config.get(var)]
-    
+
     if missing_vars:
-        logger.error(f"Variables d'environnement manquantes: {', '.join(missing_vars)}")
+        logger.error(f"Missing configuration data : {', '.join(missing_vars)}")
         sys.exit(1)
 
     for source_container in config["source_containers"]:
