@@ -21,7 +21,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        # logging.FileHandler('/var/log/swift_backup.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -44,7 +43,7 @@ class SwiftBackup:
                  threads=10):
         """
         Initialise la connexion Swift
-        
+
         Args:
             auth_url: URL d'authentification OpenStack
             username: Nom d'utilisateur
@@ -494,8 +493,8 @@ class SwiftBackup:
         """Supprime les sauvegardes plus anciennes que la période de rétention"""
         try:
             cutoff_date = datetime.now() - timedelta(days=self.retention_days)
-            logger.info("Nettoyage des backups antérieurs "
-                        f"au {cutoff_date.strftime('%Y-%m-%d')}")
+            logger.info("Cleaning backups older than "
+                        f"{cutoff_date.strftime('%Y-%m-%d')}")
             
             objects = self.get_db_older_files()
             deleted_count = 0
@@ -507,17 +506,17 @@ class SwiftBackup:
                 if del_res['success'] and not del_res['action'] == 'bulk_delete':
                     deleted_count += 1
 
-            logger.info(f"Nettoyage terminé: {deleted_count} objet(s) supprimé(s)")
+            logger.info(f"Cleanup finished: {deleted_count} objets deleted")
 
         except ClientException as e:
-            logger.error(f"Erreur lors du nettoyage: {e}")
+            logger.error(f"Error while cleaning older files: {e}")
 
     def run_backup(self):
         """Exécute le processus complet de sauvegarde"""
         logger.info("=== Début de la sauvegarde Swift ===")
         
         if not self.swift_connect():
-            logger.error("Impossible de se connecter à Swift, arrêt du script")
+            logger.error("Cannot connect to object storage, ending script")
             return False
         
         try:
@@ -549,25 +548,25 @@ class SwiftBackup:
 
     def restore_objects(self, restore_date, dry_run=False, target_container=None):
         """
-        Restaure les objets du conteneur de backup vers le conteneur source
-        à partir d'un point de restauration donné
-        
+        Restore objects from backup container to source container
+        from a given restore point
+
         Args:
-            restore_date: datetime object ou string
+            restore_date: datetime object or string
               (format: YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS)
-            dry_run: Si True, affiche seulement ce qui serait restauré
-              sans effectuer la restauration
-            target_container: Conteneur de destination (par défaut: source_container)
-            
+            dry_run: If True, only prints files to be restored
+              does not copy any data
+            target_container: Destination container (default: source_container)
+
         Returns:
-            True si succès, False sinon
+            True if success, else False
         """
-        logger.info("=== Début de la restauration Swift ===")
-        
+        logger.info("=== Starting object store restoration ===")
+
         if not self.swift_connect():
-            logger.error("Impossible de se connecter à Swift, arrêt du script")
+            logger.error("Cannot connect to object store, ending script")
             return False
-        
+
         # Parser la date de restauration
         if isinstance(restore_date, str):
             try:
@@ -579,14 +578,14 @@ class SwiftBackup:
                 else:
                     restore_datetime = datetime.strptime(restore_date, '%Y-%m-%d')
             except ValueError as e:
-                logger.error(f"Format de date invalide: {e}")
+                logger.error(f"Invalid date format: {e}")
                 logger.error("Formats acceptés: 'YYYY-MM-DD' ou 'YYYY-MM-DD HH:MM:SS'")
                 return False
         else:
             restore_datetime = restore_date
 
         restore_ts = int(restore_datetime.timestamp())
-        logger.info("Point de restauration: "
+        logger.info("Restore points: "
                     f"{restore_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
 
         if target_container is None:
@@ -595,7 +594,7 @@ class SwiftBackup:
             logger.warning("Les fichiers existants seront écrasés!")
         else:
             logger.info(f"Restauration vers le conteneur: {target_container}")
-        
+
         try:
             # Récupérer la base de données
             if not self.get_db_file():
@@ -604,14 +603,14 @@ class SwiftBackup:
 
             # Récupérer la liste des fichiers à restaurer
             files_to_restore = self.get_files_at_restore_point(restore_ts)
-            
+
             if not files_to_restore:
                 logger.warning("Aucun fichier trouvé au point de restauration"
                                f" {restore_datetime}")
                 return False
-            
+
             logger.info(f"Trouvé {len(files_to_restore)} fichier(s) à restaurer")
-            
+
             if dry_run:
                 logger.info("=== MODE DRY-RUN: Aucune restauration "
                             "ne sera effectuée ===")
@@ -647,19 +646,19 @@ class SwiftBackup:
                 else:
                     logger.error(f"Backup not found for: {name}")
                     failed += 1
-            
+
             if not copy_objects:
                 logger.error("No backup file found to restore")
                 return False
-            
+
             # Effectuer la restauration par lot
             logger.info(f"Restoring {len(copy_objects)} file(s)...")
-            
+
             result = self.swift_conn.copy(
                 container=self.backup_data_container,
                 objects=copy_objects
             )
-            
+
             for r in result:
                 if r["action"] == "copy_object":
                     if r["success"]:
@@ -677,7 +676,7 @@ class SwiftBackup:
             logger.info(f"Restaurés: {restored}")
             logger.info(f"Échecs: {failed}")
             logger.info(f"Total: {len(files_to_restore)}")
-            
+
             return failed == 0
             
         except Exception as e:
@@ -705,7 +704,7 @@ class SwiftBackup:
 
 def main():
     """Point d'entrée principal du script"""
-    
+
     parser = argparse.ArgumentParser(
         description='Script de sauvegarde et restauration OpenStack Swift',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -732,38 +731,38 @@ Variables d'environnement requises:
   OS_REGION_NAME, SOURCE_CONTAINER, BACKUP_CONTAINER
         """
     )
-    
+
     parser.add_argument(
         'action',
         choices=['backup', 'restore', 'listbackups'],
         help='Action à effectuer: backup, restore ou listbackups'
     )
-    
+
     parser.add_argument(
         '--date',
         type=str,
         help=('Date de restauration (format: YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS) '
               '- requis pour restore')
     )
-    
+
     parser.add_argument(
         '--dry-run',
         action='store_true',
         help=('Mode simulation pour la restauration (affiche les fichiers '
               'sans les restaurer)')
     )
-    
+
     parser.add_argument(
         '--target-container',
         type=str,
         help=('Conteneur de destination pour la restauration '
               '(par défaut: SOURCE_CONTAINER)')
     )
-    
+
     args = parser.parse_args()
     
     # read TOML config
-    with open("/usr/local/etc/swift_backup.toml", "rb") as fp:
+    with open("/etc/objstor-backup/config.toml", "rb") as fp:
         config = tomllib.load(fp)
 
     # check required parameters presence

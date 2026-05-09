@@ -1,0 +1,25 @@
+# objstor-backup config file
+# Put configuration in /etc/objstor-backup/config.toml
+
+# OpenStack Authentification
+auth_version = "3"
+auth_url = ""
+username = ""
+password = ""
+project_name = ""
+project_domain_name = ""
+tenant_name = ""
+region_name = ""
+threads = 10
+
+# Containers
+source_containers = ["source_conteneur"]
+# container for backup data files, can be cold storage
+backup_data_container = "backup_data_container"
+# container for backup metadata sqlite db, must be hot storage.
+# can be the same container as backup_data_container
+backup_meta_container = "backup_meta_container"
+
+# Retention
+# backups retention lenght in days (180 = 6 months)
+retention_days = 180
