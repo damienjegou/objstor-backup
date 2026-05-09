@@ -1,17 +1,17 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: swift-backup
+  name: objstor-backup
 spec:
   restartPolicy: Never
   containers:
-  - name: swift-backup
-    image: stokeo_swiftbackup:0.3
+  - name: objstor-backup
+    image: objstor-backup:0.7
     volumeMounts:
     - name: config-volume
-      mountPath: /usr/local/etc/
+      mountPath: /etc/objstor-backup
 
   volumes:
   - name: config-volume
     configMap:
-      name: swift-backup-config
+      name: objstor-backup-config
