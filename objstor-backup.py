@@ -615,7 +615,7 @@ class SwiftBackup:
                 logger.info("=== MODE DRY-RUN: Aucune restauration "
                             "ne sera effectuée ===")
                 logger.info("\nFichiers qui seraient restaurés:")
-                for name, etag, size in files_to_restore:
+                for name, etag, size, prefix in files_to_restore:
                     logger.info(
                         f"  - {name} "
                         f"size: {size} bytes, ETag: {etag} ")
@@ -725,10 +725,6 @@ Exemples d'utilisation:
 
   # Restauration vers un conteneur différent
   python swift_backup.py restore --date "2026-02-01" --target-container conteneur_test
-
-Variables d'environnement requises:
-  OS_AUTH_URL, OS_USERNAME, OS_PASSWORD, OS_PROJECT_NAME,
-  OS_REGION_NAME, SOURCE_CONTAINER, BACKUP_CONTAINER
         """
     )
 
