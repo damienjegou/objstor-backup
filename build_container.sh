@@ -4,7 +4,7 @@
 # build podman container for backend web
 
 IMAGE_NAME="objstor-backup"
-VERSION="0.7"
+VERSION="0.1"
 
 # Nom du conteneur temporaire
 container_name="objstor-backup_build"
@@ -18,7 +18,7 @@ buildah run $container_id /usr/bin/objstor-backup/bin/pip install -r /usr/bin/ob
 
 buildah copy $container_id objstor-backup.py /usr/bin/objstor-backup/
 
-buildah config --cmd "/usr/bin/objstor-backup/bin/python3 /usr/bin/objstor-backup/swift_backup.py backup" "$container_id"
+buildah config --cmd "/usr/bin/objstor-backup/bin/python3 /usr/bin/objstor-backup/objstor-backup.py backup" "$container_id"
 buildah config --label "version=$VERSION" "$container_id"
 
 # Commit de l'image

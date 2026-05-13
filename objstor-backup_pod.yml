@@ -6,7 +6,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: objstor-backup
-    image: objstor-backup:0.7
+    image: objstor-backup:0.1
     volumeMounts:
     - name: config-volume
       mountPath: /etc/objstor-backup
