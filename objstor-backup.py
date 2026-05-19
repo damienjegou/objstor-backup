@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Script de sauvegarde OpenStack Swift
-Sauvegarde les objets d'un conteneur source vers un conteneur de backup
-avec gestion des duplications et rétention de 6 mois
+OpenStack Swift Backup Script
+Backs up objects from a source container to a backup container
+with duplicate handling and 6-month retention
 """
 
 import argparse
@@ -16,7 +16,7 @@ from swiftclient.service import (SwiftService, SwiftError, SwiftCopyObject,
 from swiftclient.exceptions import ClientException
 
 
-# Configuration du logging
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -27,6 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+
 def make_source_objects_gen(parts_gen):
     for page in parts_gen:
         if page["success"]:
@@ -34,25 +35,26 @@ def make_source_objects_gen(parts_gen):
                 yield obj
 
 
+
 class SwiftBackup:
-    """Classe pour gérer les sauvegardes OpenStack Swift"""
-    
+    """Class for managing OpenStack Swift backups"""
     def __init__(self, auth_version, auth_url, username, password, tenant_name,
                  region_name, project_name, project_domain_name, source_container,
                  backup_data_container, backup_meta_container, retention_days=180,
                  threads=10):
         """
-        Initialise la connexion Swift
+        Initializes Swift connection
 
         Args:
-            auth_url: URL d'authentification OpenStack
-            username: Nom d'utilisateur
-            password: Mot de passe
-            tenant_name: Nom du tenant/projet
-            source_containers: Conteneurs source
-            backup_container: Conteneur de backup
-            backup_prefix: backups dans un sous dossier du conteneur de backup
-            retention_days: Durée de rétention en jours (défaut: 180 = 6 mois)
+            auth_url: OpenStack authentication URL
+            username: Username
+            password: Password
+            tenant_name: Tenant/project name
+            source_container: Source container
+            backup_data_container: Backup data container
+            backup_meta_container: Backup metadata container
+            retention_days: Retention period in days (default: 180 = 6 months)
+            threads: Number of threads to use
         """
         self.auth_version = auth_version
         self.auth_url = auth_url
@@ -93,10 +95,10 @@ class SwiftBackup:
         }
         try:
             self.swift_conn = SwiftService(options=connect_options)
-            logger.info("Connexion à Swift établie avec succès")
+            logger.info(f"Connected to object storage, container {self.source_container}")
             return True
         except SwiftError as e:
-            logger.error(f"Erreur de connexion à Swift: {e}")
+            logger.error(f"Failed to connect to object storage: {e}")
             return False
 
     def db_connect(self):
@@ -108,7 +110,7 @@ class SwiftBackup:
         self.db_conn.close()
 
     def init_db(self):
-        """ Creates metadata db file """
+        """Creates metadata db file"""
         self.db_connect()
         cursor = self.db_conn.cursor()
         
@@ -120,15 +122,13 @@ class SwiftBackup:
                 size INTEGER NOT NULL,
                 prefix TEXT,
                 UNIQUE (name, etag, size)
-            )"""
-        )
+            )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS backups (
                 time INTEGER NOT NULL,
                 object_id INTEGER NOT NULL,
                 PRIMARY KEY (time, object_id)
-            )"""
-        )
+            )""")
         cursor.close()
         self.db_conn.commit()
 
@@ -280,13 +280,13 @@ class SwiftBackup:
 
     def get_files_at_restore_point(self, restore_date):
         """
-        Récupère les fichiers qui existaient à une date de restauration donnée
-        
+        Retrieves files that existed at a given restore date
+
         Args:
-            restore_date: datetime object ou timestamp de la date de restauration
-            
+            restore_date: datetime object or timestamp of the restore date
+
         Returns:
-            Liste des tuples (name, etag, size, first_backup, last_seen)
+            List of tuples (name, etag, size, first_backup, last_seen)
         """
         if isinstance(restore_date, datetime):
             restore_ts = int(restore_date.timestamp())
@@ -296,17 +296,10 @@ class SwiftBackup:
         self.db_connect()
         cursor = self.db_conn.cursor()
         
-        # Sélectionner les fichiers :
-        # - sauvegardés avant ou à la date de restauration
+        # Select files:
+        # - backed up before or at the restore date
         #   (first_backup <= restore_date)
-        # - encore présents à la date de restauration (last_seen >= restore_date)
-        # res = cursor.execute("""
-        #     SELECT name, etag, size, first_backup, last_seen
-        #     FROM copied_objects
-        #     WHERE first_backup <= ? AND last_seen >= ?
-        #     ORDER BY name
-        # """, (restore_ts, restore_ts))
-
+        # - still present at the restore date (last_seen >= restore_date)
         res = cursor.execute(
             ("SELECT copied_objects.name, copied_objects.etag, copied_objects.size, "
              "copied_objects.prefix "
@@ -318,7 +311,7 @@ class SwiftBackup:
         return res.fetchall()
 
     def get_db_file(self):
-        """ get sqlite3 file from object storage """
+        """get sqlite3 file from object storage"""
         obj_path = "{}/{}".format(self.source_container, self.dbfile)
         result = self.swift_conn.download(container=self.backup_meta_container,
                                           objects=[obj_path],
@@ -328,11 +321,11 @@ class SwiftBackup:
                 return True
             elif down_res['object'] == obj_path:
                 err = down_res.get("error")
-                logger.error(f"Could not get db file at {obj_path} : {err}")
+                logger.error(f"Could not get db file at {obj_path}: {err}")
         return False
 
     def save_db_file(self):
-        """ write sqlite3 file to object storage meta container """
+        """write sqlite3 file to object storage meta container"""
         self.db_close()
         
         obj_path = "{}/{}".format(self.source_container, self.dbfile)
@@ -346,38 +339,38 @@ class SwiftBackup:
                 logger.info("db file saved to backup container")
     
     def ensure_backup_container_exists(self):
-        """ Check if backup containers exists """
+        """Check if backup containers exists"""
         try:
             self.swift_conn.stat(container=self.backup_data_container)
             logger.info(f"backup data container '{self.backup_data_container}' "
-                        "aleady exists")
+                        "already exists")
             if self.backup_meta_container != self.backup_data_container:
                 self.swift_conn.stat(container=self.backup_meta_container)
                 logger.info(f"backup meta container '{self.backup_meta_container}' "
-                            "aleady exists")
+                            "already exists")
             # check if sqlite db is inside
             if not self.get_db_file():
                 self.init_db()
         except ClientException:
             try:
                 # self.swift_conn.put_container(self.backup_container)
-                # logger.info(f"Conteneur de backup '{self.backup_container}' créé")
+                # logger.info(f"Backup container '{self.backup_container}' created")
                 # create and upload sqlite db
                 self.init_db()
             except ClientException as e:
-                logger.error(f"Erreur lors de la création du conteneur de backup: {e}")
+                logger.error(f"Error creating backup container: {e}")
                 raise
 
     def get_object_etag(self, container, obj_name):
         """
-        Récupère l'ETag (MD5) d'un objet
-        
+        Retrieves the ETag (MD5) of an object
+
         Args:
-            container: Nom du conteneur
-            obj_name: Nom de l'objet
-            
+            container: Container name
+            obj_name: Object name
+
         Returns:
-            ETag de l'objet ou None si non trouvé
+            Object's ETag or None if not found
         """
         try:
             obj_path = "{}/{}".format(self.source_container, self.dbfile)
@@ -388,7 +381,7 @@ class SwiftBackup:
 
     def object_already_in_backup(self, obj_name, etag, size):
         """
-        check if object has already been copied to backup container using sqlite db
+        Check if object has already been copied to backup container using sqlite db
         """
         self.db_connect()
         cursor = self.db_conn.cursor()
@@ -440,7 +433,7 @@ class SwiftBackup:
                         options={"destination": destination}))
             else:
                 skipped += 1
-                logger.debug(f"Objet '{obj_name}' déjà sauvegardé (identique)")
+                logger.debug(f"Object '{obj_name}' already backed up (identical)")
 
         # close db
         cursor.close()
@@ -451,13 +444,13 @@ class SwiftBackup:
 
     def backup_objects(self, obj_list):
         """
-        Sauvegarde une liste d'objets du conteneur source vers le conteneur de backup
-        
+        Backs up a list of objects from the source container to the backup container
+
         Args:
             obj_list: object list from source container
-            
+
         Returns:
-            True si sauvegardé, False si déjà existant et identique
+            True if backed up, False if already existing and identical
         """
         copy_objects, total_obj, skipped_obj = self.backup_select_copy_objects(obj_list)
 
@@ -490,7 +483,7 @@ class SwiftBackup:
 
 
     def cleanup_old_backups(self):
-        """Supprime les sauvegardes plus anciennes que la période de rétention"""
+        """Deletes backups older than the retention period"""
         try:
             cutoff_date = datetime.now() - timedelta(days=self.retention_days)
             logger.info("Cleaning backups older than "
@@ -506,44 +499,44 @@ class SwiftBackup:
                 if del_res['success'] and not del_res['action'] == 'bulk_delete':
                     deleted_count += 1
 
-            logger.info(f"Cleanup finished: {deleted_count} objets deleted")
+            logger.info(f"Cleanup finished: {deleted_count} objects deleted")
 
         except ClientException as e:
             logger.error(f"Error while cleaning older files: {e}")
 
     def run_backup(self):
-        """Exécute le processus complet de sauvegarde"""
-        logger.info("=== Début de la sauvegarde Swift ===")
+        """Executes the complete backup process"""
+        logger.info(f"Starting backup {self.source_container}")
         
         if not self.swift_connect():
             logger.error("Cannot connect to object storage, ending script")
             return False
         
         try:
-            # Vérifier/créer le conteneur de backup
+            # Check/create the backup container
             self.ensure_backup_container_exists()
             
-            # Lister les objets du conteneur source
+            # List objects from source container
             source_objects = make_source_objects_gen(
                 self.swift_conn.list(self.source_container)
             )
 
             copied, skipped, failed, total = self.backup_objects(source_objects)
 
-            logger.info(f"Found {total} objets in container '{self.source_container}'")
+            logger.info(f"Found {total} objects in container '{self.source_container}'")
             logger.info(f"{copied} new, {skipped} skipped, {failed} failed")
             
-            # Nettoyer les anciennes sauvegardes
+            # Clean up old backups
             self.cleanup_old_backups()
 
             # save db file to object storage
             self.save_db_file()
             
-            logger.info("=== Sauvegarde Swift terminée avec succès ===")
+            logger.info(f"Backup container {self.source_container} success")
             return True
             
         except ClientException as e:
-            logger.error(f"Erreur durant la sauvegarde: {e}")
+            logger.error(f"Error during backup: {e}")
             return False
 
     def restore_objects(self, restore_date, dry_run=False, target_container=None):
@@ -553,7 +546,7 @@ class SwiftBackup:
 
         Args:
             restore_date: datetime object or string
-              (format: YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS)
+              (format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
             dry_run: If True, only prints files to be restored
               does not copy any data
             target_container: Destination container (default: source_container)
@@ -567,7 +560,7 @@ class SwiftBackup:
             logger.error("Cannot connect to object store, ending script")
             return False
 
-        # Parser la date de restauration
+        # Parse restore date
         if isinstance(restore_date, str):
             try:
                 if restore_date.isdigit():
@@ -579,7 +572,7 @@ class SwiftBackup:
                     restore_datetime = datetime.strptime(restore_date, '%Y-%m-%d')
             except ValueError as e:
                 logger.error(f"Invalid date format: {e}")
-                logger.error("Formats acceptés: 'YYYY-MM-DD' ou 'YYYY-MM-DD HH:MM:SS'")
+                logger.error("Accepted formats: 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'")
                 return False
         else:
             restore_datetime = restore_date
@@ -590,38 +583,37 @@ class SwiftBackup:
 
         if target_container is None:
             target_container = self.source_container
-            logger.warning(f"Restauration vers le conteneur source: {target_container}")
-            logger.warning("Les fichiers existants seront écrasés!")
+            logger.warning(f"Restore to the object storage container: {target_container}")
+            logger.warning("Existing files will be overwritten!")
         else:
-            logger.info(f"Restauration vers le conteneur: {target_container}")
+            logger.info(f"Restore to container: {target_container}")
 
         try:
-            # Récupérer la base de données
+            # Retrieve the database
             if not self.get_db_file():
-                logger.error("Impossible de récupérer la base de données de backup")
+                logger.error("Could not retrieve backup database")
                 return False
 
-            # Récupérer la liste des fichiers à restaurer
+            # Retrieve list of files to restore
             files_to_restore = self.get_files_at_restore_point(restore_ts)
 
             if not files_to_restore:
-                logger.warning("Aucun fichier trouvé au point de restauration"
-                               f" {restore_datetime}")
+                logger.warning("No files found at restore point "
+                               f"{restore_datetime}")
                 return False
 
-            logger.info(f"Trouvé {len(files_to_restore)} fichier(s) à restaurer")
+            logger.info(f"Found {len(files_to_restore)} file(s) to restore")
 
             if dry_run:
-                logger.info("=== MODE DRY-RUN: Aucune restauration "
-                            "ne sera effectuée ===")
-                logger.info("\nFichiers qui seraient restaurés:")
+                logger.info("=== DRY-RUN MODE: No restore will be performed ===")
+                logger.info("\nFiles that would be restored:")
                 for name, etag, size, prefix in files_to_restore:
                     logger.info(
                         f"  - {name} "
                         f"size: {size} bytes, ETag: {etag} ")
                 return True
 
-            # Restaurer les fichiers
+            # Restore files
             restored = 0
             failed = 0
 
@@ -651,7 +643,7 @@ class SwiftBackup:
                 logger.error("No backup file found to restore")
                 return False
 
-            # Effectuer la restauration par lot
+            # Perform batch restore
             logger.info(f"Restoring {len(copy_objects)} file(s)...")
 
             result = self.swift_conn.copy(
@@ -665,33 +657,33 @@ class SwiftBackup:
                         obj_name = r.get('object', '')
                         dest_name = r.get('destination', '')
                         restored += 1
-                        logger.info(f"✓ Restauré: {dest_name}")
+                        logger.info(f"✓ Restored: {dest_name}")
                     else:
                         failed += 1
                         obj_name = r.get('object', '')
-                        error = r.get('error', 'Erreur inconnue')
-                        logger.error(f"✗ Échec restauration: {obj_name} - {error}")
+                        error = r.get('error', 'Unknown error')
+                        logger.error(f"✗ Restore failed: {obj_name} - {error}")
 
-            logger.info("\n=== Restauration terminée ===")
-            logger.info(f"Restaurés: {restored}")
-            logger.info(f"Échecs: {failed}")
+            logger.info("\n=== Restore complete ===")
+            logger.info(f"Restored: {restored}")
+            logger.info(f"Failed: {failed}")
             logger.info(f"Total: {len(files_to_restore)}")
 
             return failed == 0
             
         except Exception as e:
-            logger.error(f"Erreur durant la restauration: {e}")
+            logger.error(f"Error during restore: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return False
 
     def list_backups(self):
         if not self.swift_connect():
-            logger.error("Impossible de se connecter à Swift, arrêt du script")
+            logger.error("Could not connect to Swift, stopping script")
             return False
 
         if not self.get_db_file():
-            logger.error("Impossible de récupérer la base de données de backup")
+            logger.error("Could not retrieve backup database")
             return False
 
         print("Restore points:")
@@ -703,56 +695,56 @@ class SwiftBackup:
 
 
 def main():
-    """Point d'entrée principal du script"""
+    """Main entry point for the script"""
 
     parser = argparse.ArgumentParser(
-        description='Script de sauvegarde et restauration OpenStack Swift',
+        description='OpenStack Swift Backup and Restore Script',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Exemples d'utilisation:
+Usage examples:
 
-  # Sauvegarde normale
+  # Normal backup
   python swift_backup.py backup
 
   # List restore points
   python swift_backup.py listbackups
 
-  # Restauration à une date donnée (dry-run)
+  # Dry-run restoration at a given date
   python swift_backup.py restore --date "2026-02-01" --dry-run
 
-  # Restauration effective à une date et heure précises
+  # Effective restoration at a specific date and time
   python swift_backup.py restore --date "2026-02-01 14:30:00"
 
-  # Restauration vers un conteneur différent
-  python swift_backup.py restore --date "2026-02-01" --target-container conteneur_test
+  # Restoration to a different container
+  python swift_backup.py restore --date "2026-02-01" --target-container test_container
         """
     )
 
     parser.add_argument(
         'action',
         choices=['backup', 'restore', 'listbackups'],
-        help='Action à effectuer: backup, restore ou listbackups'
+        help='Action to perform: backup, restore, or listbackups'
     )
 
     parser.add_argument(
         '--date',
         type=str,
-        help=('Date de restauration (format: YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS) '
-              '- requis pour restore')
+        help=('Restore date (format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS) '
+              '- required for restore')
     )
 
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help=('Mode simulation pour la restauration (affiche les fichiers '
-              'sans les restaurer)')
+        help=('Dry-run mode for restoration (displays files '
+              'without restoring them)')
     )
 
     parser.add_argument(
         '--target-container',
         type=str,
-        help=('Conteneur de destination pour la restauration '
-              '(par défaut: SOURCE_CONTAINER)')
+        help=('Destination container for restoration '
+              '(default: SOURCE_CONTAINER)')
     )
 
     args = parser.parse_args()
@@ -768,23 +760,23 @@ Exemples d'utilisation:
     missing_vars = [var for var in required_vars if not config.get(var)]
 
     if missing_vars:
-        logger.error(f"Missing configuration data : {', '.join(missing_vars)}")
+        logger.error(f"Missing configuration data: {', '.join(missing_vars)}")
         sys.exit(1)
 
     for source_container in config["source_containers"]:
         current_container_config = config.copy()
         current_container_config["source_container"] = source_container
         del current_container_config["source_containers"]
-        # Créer l'instance SwiftBackup
+        # Create SwiftBackup instance
         backup = SwiftBackup(**current_container_config)
 
-        # Exécuter l'action demandée
+        # Execute requested action
         if args.action == 'backup':
             success = backup.run_backup()
 
         elif args.action == 'restore':
             if not args.date:
-                logger.error("L'option --date est requise pour la restauration")
+                logger.error("The --date option is required for restoration")
                 parser.print_help()
                 sys.exit(1)
 
@@ -797,8 +789,8 @@ Exemples d'utilisation:
             backup.list_backups()
             success = True
 
-
     sys.exit(0 if success else 1)
+
 
 
 if __name__ == '__main__':
