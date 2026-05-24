@@ -7,6 +7,7 @@ with duplicate handling and 6-month retention
 
 import argparse
 import logging
+import os
 import sqlite3
 import sys
 import tomllib
@@ -111,6 +112,12 @@ class SwiftBackup:
 
     def init_db(self):
         """Creates metadata db file"""
+        # clean any remaining metadata file
+        try:
+            os.remove(self.dbfile)
+        except FileNotFoundError:
+            pass
+
         self.db_connect()
         cursor = self.db_conn.cursor()
         
@@ -337,6 +344,10 @@ class SwiftBackup:
         for up in up_res:
             if up['success']:
                 logger.info("db file saved to backup container")
+                # delete local db file to ensure it will not be used
+                # for another container
+                os.remove(self.dbfile)
+
     
     def ensure_backup_container_exists(self):
         """Check if backup containers exists"""
