@@ -72,7 +72,7 @@ class SwiftBackup:
         self.threads = threads
         self.swift_conn = None
 
-        self.dbfile = "backup.db"
+        self.dbfile = f"{self.source_container}-backup.db"
         self.db_conn = None
         self.db_cursor = None
         
@@ -344,10 +344,6 @@ class SwiftBackup:
         for up in up_res:
             if up['success']:
                 logger.info("db file saved to backup container")
-                # delete local db file to ensure it will not be used
-                # for another container
-                os.remove(self.dbfile)
-
     
     def ensure_backup_container_exists(self):
         """Check if backup containers exists"""
