@@ -754,10 +754,20 @@ Usage examples:
               '(default: SOURCE_CONTAINER)')
     )
 
+    parser.add_argument(
+        '-c', '--config',
+        type=str,
+        help=('Configuration file path')
+    )
+
     args = parser.parse_args()
     
     # read TOML config
-    with open("/etc/objstor-backup/config.toml", "rb") as fp:
+    configfile = "/etc/objstor-backup/config.toml"
+    if args.config:
+        configfile = args.config
+
+    with open(configfile, "rb") as fp:
         config = tomllib.load(fp)
 
     # check required parameters presence
